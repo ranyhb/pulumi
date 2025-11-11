@@ -202,11 +202,13 @@ func newDeployment(
 	// Set up a goroutine that will signal cancellation to the source if the caller context
 	// is cancelled.
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
-	go func() {
+	// Note: We initialize panicErrs channel during deployment creation below
+	panicErrsChannel := make(chan error, 10)
+	go deploy.PanicRecovery(panicErrsChannel, func() {
 		<-ctx.Cancel.Canceled()
 		logging.V(7).Infof("engine.newDeployment(...): received cancellation signal")
 		cancelFunc()
-	}()
+	})
 
 	resourceHooks := deploy.NewResourceHooks(plugctx.DialOptions)
 
@@ -325,6 +327,7 @@ func newDeployment(
 		Deployment: depl,
 		Actions:    actions,
 		Options:    opts,
+		panicErrs:  panicErrsChannel,
 	}, nil
 }
 
@@ -339,6 +342,8 @@ type deployment struct {
 	Actions runActions
 	// the options used while deploying.
 	Options *deploymentOptions
+	// Channel to collect panic errors from goroutines
+	panicErrs chan error
 }
 
 // runActions represents a set of actions to run as part of a deployment,
@@ -371,13 +376,13 @@ func (deployment *deployment) run(cancelCtx *Context) (*deploy.Plan, display.Res
 	done := make(chan bool)
 	var newPlan *deploy.Plan
 	var walkError error
-	go func() {
+	go deploy.PanicRecovery(deployment.panicErrs, func() {
 		newPlan, walkError = deployment.Deployment.Execute(ctx)
 		close(done)
-	}()
+	})
 
 	// Asynchronously listen for cancellation, and deliver that signal to the deployment.
-	go func() {
+	go deploy.PanicRecovery(deployment.panicErrs, func() {
 		select {
 		case <-cancelCtx.Cancel.Canceled():
 			// Cancel the deployment's execution context, so it begins to shut down.
@@ -385,11 +390,12 @@ func (deployment *deployment) run(cancelCtx *Context) (*deploy.Plan, display.Res
 		case <-done:
 			return
 		}
-	}()
+	})
 
 	var err error
 	// Wait for the deployment to finish executing or for the user to terminate the run.
 	select {
+	case err = <-deployment.panicErrs:
 	case <-cancelCtx.Cancel.Terminated():
 		err = cancelCtx.Cancel.TerminateErr()
 
@@ -415,6 +421,23 @@ func (deployment *deployment) run(cancelCtx *Context) (*deploy.Plan, display.Res
 	// Emit a summary event.
 	deployment.Options.Events.summaryEvent(
 		deployment.Options.DryRun, deployment.Actions.MaybeCorrupt(), duration, changes, policies)
+
+	// Close the panic errors channel to signal we're done collecting
+	close(deployment.panicErrs)
+
+	// Collect any panic errors from goroutines
+	var panicErrors []error
+	for panicErr := range deployment.panicErrs {
+		panicErrors = append(panicErrors, panicErr)
+		logging.V(4).Infof("deployment.run(...): collected panic error: %v", panicErr)
+	}
+
+	// If we have panic errors, combine them with any existing errors
+	if len(panicErrors) > 0 {
+		for _, pErr := range panicErrors {
+			err = errors.Join(err, pErr)
+		}
+	}
 
 	return newPlan, changes, err
 }
