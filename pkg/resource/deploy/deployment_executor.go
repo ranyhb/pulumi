@@ -423,7 +423,7 @@ func (ex *deploymentExecutor) Execute(callerCtx context.Context) (_ *Plan, err e
 	close(ex.panicErrs)
 
 	// Collect any panic errors from goroutines
-	var panicErrors []error
+	panicErrors := make([]error, 0, 1)
 	for panicErr := range ex.panicErrs {
 		panicErrors = append(panicErrors, panicErr)
 		logging.V(4).Infof("deploymentExecutor.Execute(...): collected panic error: %v", panicErr)

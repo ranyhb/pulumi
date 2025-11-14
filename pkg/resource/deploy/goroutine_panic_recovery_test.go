@@ -21,7 +21,9 @@ import (
 )
 
 func TestPanicRecovery(t *testing.T) {
+	t.Parallel()
 	t.Run("panic is caught and sent to error channel", func(t *testing.T) {
+		t.Parallel()
 		panicErrs := make(chan error, 1)
 		done := make(chan bool)
 
@@ -51,6 +53,7 @@ func TestPanicRecovery(t *testing.T) {
 	})
 
 	t.Run("no panic results in no error", func(t *testing.T) {
+		t.Parallel()
 		panicErrs := make(chan error, 1)
 		done := make(chan bool)
 
@@ -72,6 +75,7 @@ func TestPanicRecovery(t *testing.T) {
 	})
 
 	t.Run("nil channel does not cause panic recovery to fail", func(t *testing.T) {
+		t.Parallel()
 		done := make(chan bool)
 
 		// This should not panic even with nil channel

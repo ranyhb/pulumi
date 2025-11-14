@@ -484,6 +484,7 @@ func TestRegisterNoDefaultProviders(t *testing.T) {
 		nil,
 		nil,
 		EvalSourceOptions{},
+		nil,
 	).Iterate(context.Background(), &testProviderSource{})
 	require.NoError(t, err)
 
@@ -732,6 +733,7 @@ func TestRegisterDefaultProviders(t *testing.T) {
 		nil,
 		nil,
 		EvalSourceOptions{},
+		nil,
 	).Iterate(context.Background(), &testProviderSource{})
 	require.NoError(t, err)
 
@@ -884,7 +886,8 @@ func TestReadInvokeNoDefaultProviders(t *testing.T) {
 	ctx, err := newTestPluginContext(t, program)
 	require.NoError(t, err)
 
-	iter, err := NewEvalSource(ctx, runInfo, nil, nil, EvalSourceOptions{}).Iterate(context.Background(), providerSource)
+	iter, err := NewEvalSource(
+		ctx, runInfo, nil, nil, EvalSourceOptions{}, nil).Iterate(context.Background(), providerSource)
 	require.NoError(t, err)
 
 	reads := 0
@@ -994,7 +997,8 @@ func TestReadInvokeDefaultProviders(t *testing.T) {
 
 	providerSource := &testProviderSource{providers: make(map[sdkproviders.Reference]plugin.Provider)}
 
-	iter, err := NewEvalSource(ctx, runInfo, nil, nil, EvalSourceOptions{}).Iterate(context.Background(), providerSource)
+	iter, err := NewEvalSource(
+		ctx, runInfo, nil, nil, EvalSourceOptions{}, nil).Iterate(context.Background(), providerSource)
 	require.NoError(t, err)
 
 	reads, registers := 0, 0
@@ -1242,7 +1246,8 @@ func TestDisableDefaultProviders(t *testing.T) {
 			ctx, err := newTestPluginContext(t, program)
 			require.NoError(t, err)
 
-			iter, err := NewEvalSource(ctx, runInfo, nil, nil, EvalSourceOptions{}).Iterate(context.Background(), providerSource)
+			iter, err := NewEvalSource(
+				ctx, runInfo, nil, nil, EvalSourceOptions{}, nil).Iterate(context.Background(), providerSource)
 			require.NoError(t, err)
 
 			for {
@@ -1505,7 +1510,7 @@ func TestResouceMonitor_remoteComponentResourceOptions(t *testing.T) {
 			pluginCtx, err := newTestPluginContext(t, program)
 			require.NoError(t, err, "build plugin context")
 
-			evalSource := NewEvalSource(pluginCtx, runInfo, nil, nil, EvalSourceOptions{})
+			evalSource := NewEvalSource(pluginCtx, runInfo, nil, nil, EvalSourceOptions{}, nil)
 			defer func() {
 				require.NoError(t, evalSource.Close(), "close eval source")
 			}()

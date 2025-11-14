@@ -44,6 +44,7 @@ const clientRuntimeName = "client"
 func ProjectInfoContext(projinfo *Projinfo, host plugin.Host,
 	diag, statusDiag diag.Sink, debugging plugin.DebugContext, disableProviderPreview bool,
 	tracingSpan opentracing.Span, config map[config.Key]string,
+	panicErrs chan<- error,
 ) (string, string, *plugin.Context, error) {
 	contract.Requiref(projinfo != nil, "projinfo", "must not be nil")
 
@@ -56,7 +57,7 @@ func ProjectInfoContext(projinfo *Projinfo, host plugin.Host,
 	// Create a context for plugins.
 	ctx, err := plugin.NewContextWithRoot(context.TODO(), diag, statusDiag, host, pwd, projinfo.Root,
 		projinfo.Proj.Runtime.Options(), disableProviderPreview, tracingSpan, projinfo.Proj.Plugins,
-		projinfo.Proj.GetPackageSpecs(), config, debugging)
+		projinfo.Proj.GetPackageSpecs(), config, debugging, panicErrs)
 	if err != nil {
 		return "", "", nil, err
 	}
@@ -163,7 +164,8 @@ type deploymentOptions struct {
 type deploymentSourceFunc func(
 	ctx context.Context,
 	client deploy.BackendClient, opts *deploymentOptions, proj *workspace.Project, pwd, main, projectRoot string,
-	target *deploy.Target, plugctx *plugin.Context, resourceHooks *deploy.ResourceHooks) (deploy.Source, error)
+	target *deploy.Target, plugctx *plugin.Context, resourceHooks *deploy.ResourceHooks,
+) (deploy.Source, error)
 
 // newDeployment creates a new deployment with the given context and options.
 func newDeployment(
@@ -188,10 +190,12 @@ func newDeployment(
 		return nil, fmt.Errorf("failed to decrypt config: %w", err)
 	}
 
+	panicErrsChannel := make(chan error)
+
 	// Create a context for plugins.
 	debugContext := newDebugContext(opts.Events, opts.AttachDebugger)
 	pwd, main, plugctx, err := ProjectInfoContext(projinfo, opts.Host,
-		opts.Diag, opts.StatusDiag, debugContext, opts.DisableProviderPreview, info.TracingSpan, config)
+		opts.Diag, opts.StatusDiag, debugContext, opts.DisableProviderPreview, info.TracingSpan, config, panicErrsChannel)
 	if err != nil {
 		return nil, err
 	}
@@ -202,8 +206,6 @@ func newDeployment(
 	// Set up a goroutine that will signal cancellation to the source if the caller context
 	// is cancelled.
 	cancelCtx, cancelFunc := context.WithCancel(context.Background())
-	// Note: We initialize panicErrs channel during deployment creation below
-	panicErrsChannel := make(chan error, 10)
 	go deploy.PanicRecovery(panicErrsChannel, func() {
 		<-ctx.Cancel.Canceled()
 		logging.V(7).Infof("engine.newDeployment(...): received cancellation signal")
@@ -426,7 +428,7 @@ func (deployment *deployment) run(cancelCtx *Context) (*deploy.Plan, display.Res
 	close(deployment.panicErrs)
 
 	// Collect any panic errors from goroutines
-	var panicErrors []error
+	panicErrors := make([]error, 0, 1)
 	for panicErr := range deployment.panicErrs {
 		panicErrors = append(panicErrors, panicErr)
 		logging.V(4).Infof("deployment.run(...): collected panic error: %v", panicErr)
